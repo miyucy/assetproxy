@@ -25,7 +25,7 @@ function httpRequest(host, path, success, error) {
   const request = (port === 80 ? http : https).request(options, (response) => {
     console.log('response', response.statusCode, options.hostname, options.path);
     if (response.statusCode === 200) {
-      success([host, response]);
+      success({ host, response });
     } else {
       response.destroy();
       error(new Error('Not OK'));
@@ -33,6 +33,35 @@ function httpRequest(host, path, success, error) {
   });
   request.on('error', error);
   request.end();
+}
+
+function copyResponseHeaders(src, dest) {
+  const srcHeaders = src.headers;
+  ['Content-Type', 'Cache-Control', 'Date', 'ETag', 'Last-Modified'].forEach(name => {
+    const key = name.toLowerCase();
+    const value = srcHeaders[key];
+    if (value && value.length > 0) {
+      dest.setHeader(name, value);
+    }
+  });
+}
+
+function streamGzip(src, req, dest) {
+  const acceptEncoding = req.headers['accept-encoding'] || '';
+  const contentEncoding = src.headers['content-encoding'] || '';
+
+  if (acceptEncoding.includes('gzip')) {
+    dest.setHeader('Content-Encoding', 'gzip');
+    if (!contentEncoding.includes('gzip')) {
+      return src.pipe(zlib.createGzip());
+    }
+  } else {
+    if (contentEncoding.includes('gzip')) {
+      return src.pipe(zlib.createGunzip());
+    }
+  }
+
+  return src;
 }
 
 // req == http.IncomingMessage
@@ -72,62 +101,23 @@ http.createServer((req, res) => {
       ));
     });
 
-    let errorEnded = false;
-    success.then(wrapper => {
-      const host = wrapper[0];
-      const response = wrapper[1];
+    Promise.race([success, Promise.all(errors)]).then((value) => {
+      if (Array.isArray(value)) {
+        throw new Error('Not Found');
+      }
+
+      const { host, response } = value;
 
       REDIS.set([req.url, host, 'EX', `${LIFETIME}`]);
 
       res.statusCode = response.statusCode;
       res.setHeader('Connection', 'close');
-
-      {
-        const headers = response.headers;
-        ['Content-Type', 'Cache-Control', 'Date', 'ETag', 'Last-Modified'].forEach(name => {
-          const key = name.toLowerCase();
-          const value = headers[key];
-          if (value && value.length > 0) {
-            res.setHeader(name, value);
-          }
-        });
-      }
-
-      let piped = response;
-
-      {
-        const reqAcceptEncoding = req.headers['accept-encoding'] || '';
-        const resContentEncoding = response.headers['content-encoding'] || '';
-
-        if (reqAcceptEncoding.includes('gzip')) {
-          res.setHeader('Content-Encoding', 'gzip');
-          if (!resContentEncoding.includes('gzip')) {
-            piped = piped.pipe(zlib.createGzip());
-          }
-        } else {
-          if (resContentEncoding.includes('gzip')) {
-            piped = piped.pipe(zlib.createGunzip());
-          }
-        }
-      }
-
-      piped.pipe(res);
+      copyResponseHeaders(response, res);
+      streamGzip(response, req, res).pipe(res);
     }).catch((err) => {
-      if (!errorEnded) {
-        console.log('err', err);
-        res.statusCode = 500;
-        res.end();
-        errorEnded = true;
-      }
-    });
-
-    Promise.all(errors).then(() => new Error('Not Found')).catch((err) => {
-      if (!errorEnded) {
-        console.log('err', err);
-        res.statusCode = 404;
-        res.end();
-        errorEnded = true;
-      }
+      console.log('err', err);
+      res.statusCode = 404;
+      res.end();
     });
   });
 }).listen(process.env.PORT);
