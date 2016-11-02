@@ -93,7 +93,7 @@ http.createServer((req, res) => {
   REDIS.get(req.url, (err, cachedHost) => {
     let hosts = null;
 
-    if (cachedHost) {
+    if (cachedHost && HOSTS.includes(cachedHost)) {
       hosts = [cachedHost];
     } else {
       hosts = [...HOSTS];
