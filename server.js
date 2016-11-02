@@ -10,12 +10,16 @@ const REDIS = redis.createClient(process.env.REDIS_URL || 'redis://127.0.0.1:637
 const ONEDAY = 60 * 60 * 24;
 const LIFETIME = ONEDAY * parseInt(process.env.LIFETIME || '14', 10);
 
-function httpRequest(host, path, success, error) {
+function httpRequest(host, path, originalHeaders, success, error) {
   const uri = url.parse(host);
   const port = uri.protocol === 'https:' ? 443 : 80;
   const headers = {
     accept: '*/*', 'accept-encoding': 'gzip',
   };
+  if (originalHeaders.origin) {
+    headers.origin = originalHeaders.origin;
+  }
+
   const options = {
     hostname: uri.hostname,
     port, headers, path,
@@ -96,7 +100,7 @@ http.createServer((req, res) => {
     const success = new Promise((success) => {
       errors = hosts.map((host) => (
         new Promise((error) => (
-          httpRequest(host, req.url, success, error)
+          httpRequest(host, req.url, req.headers, success, error)
         ))
       ));
     });
