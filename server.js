@@ -41,7 +41,10 @@ function httpRequest(host, path, originalHeaders, success, error) {
 
 function copyResponseHeaders(src, dest) {
   const srcHeaders = src.headers;
-  ['Content-Type', 'Cache-Control', 'Date', 'ETag', 'Last-Modified'].forEach(name => {
+  ['Content-Type', 'Cache-Control', 'Date', 'ETag', 'Last-Modified',
+   'Access-Control-Allow-Origin', 'Access-Control-Allow-Methods',
+   'Access-Control-Expose-Headers', 'Access-Control-Max-Age',
+   'Access-Control-Allow-Credentials', 'Access-Control-Allow-Headers'].forEach(name => {
     const key = name.toLowerCase();
     const value = srcHeaders[key];
     if (value && value.length > 0) {
