@@ -39,6 +39,25 @@ function httpRequest(host, path, originalHeaders, success, error) {
   request.end();
 }
 
+function bulkRequest(hosts, req) {
+  let errors = null;
+  const success = new Promise((success) => {
+    errors = hosts.map((host) => (
+      new Promise((error) => (
+        httpRequest(host, req.url, req.headers, success, error)
+      ))
+    ));
+  });
+
+  return Promise.race([success, Promise.all(errors)]).then(value => {
+    if (Array.isArray(value)) {
+      throw new Error('Not Found');
+    } else {
+      return value;
+    }
+  });
+}
+
 function copyResponseHeaders(src, dest) {
   const srcHeaders = src.headers;
   ['Content-Type', 'Cache-Control', 'Date', 'ETag', 'Last-Modified',
@@ -99,22 +118,11 @@ http.createServer((req, res) => {
       hosts = [...HOSTS];
     }
 
-    let errors = null;
-    const success = new Promise((success) => {
-      errors = hosts.map((host) => (
-        new Promise((error) => (
-          httpRequest(host, req.url, req.headers, success, error)
-        ))
-      ));
-    });
-
-    Promise.race([success, Promise.all(errors)]).then((value) => {
-      if (Array.isArray(value)) {
-        throw new Error('Not Found');
-      }
-
-      const { host, response } = value;
-
+    bulkRequest(hosts, req).catch(err => {
+      console.log('err', err);
+      REDIS.del(req.url);
+      return bulkRequest([...HOSTS], req);
+    }).then(({ host, response }) => {
       REDIS.set([req.url, host, 'EX', `${LIFETIME}`]);
 
       res.statusCode = response.statusCode;
@@ -125,7 +133,6 @@ http.createServer((req, res) => {
       console.log('err', err);
       res.statusCode = 404;
       res.end();
-      REDIS.del(req.url);
     });
   });
 }).listen(process.env.PORT);
