@@ -125,6 +125,7 @@ http.createServer((req, res) => {
       console.log('err', err);
       res.statusCode = 404;
       res.end();
+      REDIS.del(req.url);
     });
   });
 }).listen(process.env.PORT);
